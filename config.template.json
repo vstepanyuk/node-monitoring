@@ -1,0 +1,18 @@
+{   "storage": {
+        "host" : "localhost",
+        "port" : 8086,
+        "username" : "user",
+        "password" : "pass",
+        "database" : "monitoring"
+    },
+    "plugins": {
+        "rabbitmq": {
+            "localhost": {
+                "host": "127.0.0.1",
+                "port": 15672,
+                "username": "user",
+                "password": "pass"
+            }
+        }
+    }
+}
