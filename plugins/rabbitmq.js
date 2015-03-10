@@ -15,6 +15,10 @@ module.exports = Plugin = function Plugin (options, storage) {
     this.storage = storage;
 };
 
+Plugin.prototype.escape = function(name) {
+    return encodeURIComponent(name.replace(/\./g, '_').replace(/\|/g, '.'));
+};
+
 /**
  * Write statistic into storage
  * @param  {string}   statName Statistic name
@@ -28,11 +32,11 @@ Plugin.prototype.writeStats = function(statName, host, series, callback) {
         tmpSeries = {};
 
     _.each(series, function (points, name) {
-        name = '{plugin}|{host}|{name}|{subname}'.format({plugin: self.name, host: host, name: statName, subname: name});
+        name = this.escape('{plugin}|{host}|{name}|{subname}'.format({plugin: self.name, host: host, name: statName, subname: name}));
         tmpSeries[name] = _.each(points, function(point) {
             point['date'] = now;
         });
-    });
+    }, this);
 
     this.storage.writeSeries(tmpSeries, {}, _.bind(function(err) {
         callback.call(this, err);
@@ -240,6 +244,7 @@ Plugin.prototype.sendQueuesStats = function (host, callback) {
  */
 Plugin.prototype.run = function () {
     var self = this;
+    process.stdout.write((new Date()) + "\r");
     async.map(_.keys(this.options), _.bind(function (host, callback) {
         async.waterfall([
             _.bind(this.sendNodesStats, this, host),
@@ -256,6 +261,6 @@ Plugin.prototype.run = function () {
     }, this), function () {
         setTimeout(function() {
             self.run();
-        }, 500);
+        }, 1000);
     });
 };
