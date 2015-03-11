@@ -134,7 +134,7 @@ Plugin.prototype.sendNodesStats = function (host, callback) {
 
         var series = {};
         _.each(json || [], function (node) {
-            series[node.name] = [self.values(node, 'mem_used', 'fd_used', 'proc_used')];
+            series[node.name] = [self.values(node, 'mem_used', 'fd_used', 'proc_used', 'disk_free')];
         });
 
         self.writeStats('node', host, series, callback);
