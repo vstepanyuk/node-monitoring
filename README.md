@@ -1,6 +1,7 @@
 # NodeJS Monitoring App
 
 ## Supported Plugins:
-    [x] RabbitMQ
+    - RabbitMQ
 
-Stats storage: influxdb
+## Supported Storage
+    - ElasticSearch
