@@ -1,10 +1,12 @@
-{   "storage": {
-        "host" : "localhost",
-        "port" : 8086,
-        "username" : "user",
-        "password" : "pass",
-        "database" : "monitoring"
-    },
+{
+    "storage": [{
+        "type": "elasticsearch",
+        "host": "localhost:9200",
+        "log": "trace",
+        "index": {
+            "name": "monitoring"
+        }
+    }],
     "plugins": {
         "rabbitmq": {
             "localhost": {

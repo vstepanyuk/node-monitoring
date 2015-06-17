@@ -1,9 +1,8 @@
-var request = require('request'),
-    _       = require('lodash'),
-    fs      = require('fs'),
-    Influx  = require('influx'),
-    async   = require('async'),
-    format  = require('string-template')
+var request       = require('request'),
+    _             = require('lodash'),
+    fs            = require('fs'),
+    async         = require('async'),
+    format        = require('string-template')
 ;
 
 // Extend core string class
@@ -12,7 +11,11 @@ String.prototype.format = function (values) {
 };
 
 var config = JSON.parse(fs.readFileSync(__dirname + "/config.json"));
-var client = Influx(config.storage);
+
+var storages = _.map(config['storage'], function (storageOptions) {
+    var StorageClass = require('./storage/' + storageOptions['type']);
+    return new StorageClass(_.omit(storageOptions, 'type'));
+});
 
 var plugins = [];
 
@@ -21,5 +24,5 @@ _.each(config['plugins'], function (options, pluginName) {
 });
 
 async.map(plugins, function (pluginData) {
-    (new (require('./plugins/' + pluginData.name + '.js'))(pluginData.options, client)).run();
+    (new (require('./plugins/' + pluginData.name))(pluginData.options, storages)).run();
 });

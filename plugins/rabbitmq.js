@@ -1,19 +1,21 @@
-var request = require('request'),
-    _       = require('lodash'),
-    fs      = require('fs'),
-    async   = require('async')
+var request        = require('request')
+  , _              = require('lodash')
+  , fs             = require('fs')
+  , async          = require('async')
+  , util           = require('util')
+  , AbstractPlugin = require('./abstract')
 ;
 
 /**
  * Constructor
  * @param {object} options Plugin options
- * @param {Influx} storage Storage instance
+ * @param {Influx} storage Storages instances
  */
-module.exports = Plugin = function Plugin (options, storage) {
-    this.name = "rabbitmq";
-    this.options = options;
-    this.storage = storage;
+module.exports = Plugin = function Plugin (options, storages) {
+    AbstractPlugin.call(this, options, storages);
 };
+
+util.inherits(Plugin, AbstractPlugin);
 
 Plugin.prototype.escape = function(name) {
     return encodeURIComponent(name.replace(/\./g, '_').replace(/\|/g, '.'));
@@ -21,26 +23,28 @@ Plugin.prototype.escape = function(name) {
 
 /**
  * Write statistic into storage
- * @param  {string}   statName Statistic name
- * @param  {string}   host     Rabbitmq host
- * @param  {array}    series   Series data
+ * @param  {String}   statName Statistic name
+ * @param  {String}   host     Rabbitmq host
+ * @param  {Array}    series   Series data
  * @param  {Function} callback
  */
 Plugin.prototype.writeStats = function(statName, host, series, callback) {
     var self = this,
-        now = new Date(),
         tmpSeries = {};
 
-    _.each(series, function (points, name) {
-        name = this.escape('{plugin}|{host}|{name}|{subname}'.format({plugin: self.name, host: host, name: statName, subname: name}));
-        tmpSeries[name] = _.each(points, function(point) {
-            point['date'] = now;
+    var tmp = [];
+    _.each(series, function (data) {
+        var tags = _.extend({}, data.tags, {type: statName, host: host});
+        _.each(data.metrics, function (value, name) {
+            tmp.push({
+                name: name,
+                value: value,
+                tags: tags
+            });
         });
     }, this);
 
-    this.storage.writeSeries(tmpSeries, {}, _.bind(function(err) {
-        callback.call(this, err);
-    }, this));
+    this.flush(tmp, callback);
 };
 
 /**
@@ -132,9 +136,20 @@ Plugin.prototype.sendNodesStats = function (host, callback) {
             return;
         }
 
-        var series = {};
+        var series = [];
         _.each(json || [], function (node) {
-            series[node.name] = [self.values(node, 'mem_used', 'fd_used', 'proc_used', 'disk_free')];
+            var values = self.values(node, 'mem_used', 'sockets_used', 'disk_free', 'mem_limit', 'sockets_total');
+
+            tmpValues = {
+                mem: Math.round(100 * parseFloat(values.mem_used) / parseFloat(values.mem_limit)),
+                sockets: Math.round(100 * parseFloat(values.sockets_used) / parseFloat(values.sockets_total)),
+                disk_free: values.disk_free
+            };
+
+            series.push({
+                tags: {name: node.name},
+                metrics: tmpValues
+            });
         });
 
         self.writeStats('node', host, series, callback);
@@ -155,15 +170,14 @@ Plugin.prototype.sendVhostsStats = function (host, callback) {
             return;
         }
 
-        var series = {};
+        var series = [];
         _.each(json || [], function (vhost) {
-            series[vhost['name']] = [
-                self.values(
-                    vhost, 'messages', 'messages_ready', {'messages_unack': 'messages_unacknowledged'}, 
-                    {'messages_rate': 'messages_details.rate'}, {'messages_ready_rate': 'messages_ready_details.rate'},
-                    {'messages_unack_rate': 'messages_unacknowledged_details.rate'}
+            series.push({
+                tags: {vhost: vhost['name']},
+                metrics: self.values(
+                    vhost, 'messages', 'messages_ready', {'messages_unack': 'messages_unacknowledged'}
                 )
-            ];
+            });
         });
 
         self.writeStats('vhost', host, series, callback);
@@ -176,6 +190,7 @@ Plugin.prototype.sendVhostsStats = function (host, callback) {
  * @param  {Function} callback
  */
 Plugin.prototype.sendExchangesStats = function (host, callback) {
+    // TODO: Refactor old implementation
     var self = this;
     this.getInfo(host, 'exchanges', function (err, json) {
         if (err) {
@@ -188,9 +203,9 @@ Plugin.prototype.sendExchangesStats = function (host, callback) {
             if (false == /^amq\./.test(exchange.name) && exchange.name.length) {
                 series[exchange['vhost'] + '|exchange|' + exchange.name] = [
                     self.values(
-                        exchange, {'publish_in' : 'message_stats.publish_in'}, 
+                        exchange, {'publish_in' : 'message_stats.publish_in'},
                         {'publish_out': 'message_stats.publish_out'},
-                        {'publish_in_rate': 'message_stats.publish_in_details.rate'}, 
+                        {'publish_in_rate': 'message_stats.publish_in_details.rate'},
                         {'publish_out_rate': 'message_stats.publish_out_details.rate'}
                     )
                 ];
@@ -214,28 +229,21 @@ Plugin.prototype.sendQueuesStats = function (host, callback) {
             return;
         }
 
-        var series = {};
+        var series = [];
         _.each(json || [], function (queue) {
-            series[queue['vhost'] + '|queue|' + queue.name] = [
-                self.values(
+            series.push({
+                tags: {
+                    vhost: queue['vhost'],
+                    queue: queue.name
+                },
+                metrics: self.values(
                     queue, 'messages', 'messages_ready', {'messages_unack': 'messages_unacknowledged'},
-                    {'messages_rate': 'messages_details.rate'},
-                    {'messages_ready_rate': 'messages_ready_details.rate'},
-                    {'messages_unack_rate': 'messages_unacknowledged_details.rate'},
-                    'consumers',
-                    {'ack' : 'message_stats.ack'}, 
-                    {'ack_rate' : 'message_stats.ack_details.rate'}, 
-                    {'deliver': 'message_stats.deliver'},
-                    {'deliver_rate' : 'message_stats.deliver_details.rate'}, 
-                    {'get': 'message_stats.get'}, 
-                    {'get_rate' : 'message_stats.get_details.rate'}, 
-                    {'publish': 'message_stats.publish'},
-                    {'publish_rate' : 'message_stats.publish_details.rate'}
+                    'consumers'
                 )
-            ];
+            });
         });
 
-        self.writeStats('vhost', host, series, callback);
+        self.writeStats('queue', host, series, callback);
     });
 };
 
@@ -249,7 +257,8 @@ Plugin.prototype.run = function () {
         async.waterfall([
             _.bind(this.sendNodesStats, this, host),
             _.bind(this.sendVhostsStats, this, host),
-            _.bind(this.sendExchangesStats, this, host),
+            // Refactoring
+            // _.bind(this.sendExchangesStats, this, host),
             _.bind(this.sendQueuesStats, this, host)
         ], function (err) {
             if (err) {
@@ -261,6 +270,6 @@ Plugin.prototype.run = function () {
     }, this), function () {
         setTimeout(function() {
             self.run();
-        }, 1000);
+        }, 5000);
     });
 };
