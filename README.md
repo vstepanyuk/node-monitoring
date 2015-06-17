@@ -1,7 +1,7 @@
 # NodeJS Monitoring App
 
 ## Supported Plugins:
-    - RabbitMQ
+- RabbitMQ
 
 ## Supported Storage
-    - ElasticSearch
+- ElasticSearch
